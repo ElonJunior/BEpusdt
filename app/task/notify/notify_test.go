@@ -1,9 +1,11 @@
 package notify
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -119,5 +121,62 @@ func TestDeliverBepusdtStatusUpdateDoesNotHoldDBWhileHTTPIsPending(t *testing.T)
 	close(releaseResponse)
 	if err := <-errCh; err != nil {
 		t.Fatalf("deliver notification: %v", err)
+	}
+}
+
+func TestEpusdtCallbackRequiresSuccessOrOKBody(t *testing.T) {
+	db := newNotifyTestDB(t)
+	initNotifyTestLog(t)
+	model.Db = db
+	if err := db.AutoMigrate(&model.Conf{}); err != nil {
+		t.Fatalf("auto migrate conf: %v", err)
+	}
+	if err := db.Create(&model.Conf{K: model.ApiAuthToken, V: "test-auth-token"}).Error; err != nil {
+		t.Fatalf("seed auth token: %v", err)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("redirected"))
+	}))
+	defer server.Close()
+
+	order := newWaitingOrder(server.URL)
+	order.Status = model.OrderStatusSuccess
+	order.ApiType = model.OrderApiTypeEpusdt
+
+	err := epusdt(context.Background(), order)
+	if err == nil {
+		t.Fatal("expected epusdt callback to fail when body is not success/ok")
+	}
+}
+
+func TestEpayCallbackDoesNotAcceptContainsOnly(t *testing.T) {
+	db := newNotifyTestDB(t)
+	initNotifyTestLog(t)
+	model.Db = db
+	if err := db.AutoMigrate(&model.Conf{}); err != nil {
+		t.Fatalf("auto migrate conf: %v", err)
+	}
+	if err := db.Create(&model.Conf{K: model.ApiAuthToken, V: "test-auth-token"}).Error; err != nil {
+		t.Fatalf("seed auth token: %v", err)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("okok"))
+	}))
+	defer server.Close()
+
+	order := newWaitingOrder(server.URL)
+	order.Status = model.OrderStatusSuccess
+	order.ApiType = model.OrderApiTypeEpay
+
+	err := epay(context.Background(), order)
+	if err == nil {
+		t.Fatal("expected epay callback to fail when body is not exactly success/ok")
+	}
+	if !strings.Contains(strings.ToLower(err.Error()), "success") {
+		t.Fatalf("expected error to mention success/ok requirement, got: %v", err)
 	}
 }

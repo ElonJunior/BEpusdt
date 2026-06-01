@@ -22,6 +22,12 @@ import (
 	"gorm.io/gorm"
 )
 
+func isNotifyResponseAccepted(body []byte) bool {
+	bodyStr := strings.TrimSpace(string(body))
+
+	return strings.EqualFold(bodyStr, "success") || strings.EqualFold(bodyStr, "ok")
+}
+
 type EpNotify struct {
 	TradeId            string  `json:"trade_id"`             //  本地订单号
 	OrderId            string  `json:"order_id"`             //  客户交易id
@@ -87,10 +93,7 @@ func epay(ctx context.Context, order model.Order) error {
 		return err
 	}
 
-	var bodyStr = strings.ToLower(strings.TrimSpace(string(all)))
-
-	// 判断是否包含 success 或 ok
-	if !strings.Contains(bodyStr, "success") && !strings.Contains(bodyStr, "ok") {
+	if !isNotifyResponseAccepted(all) {
 		markNotifyFail(order, "商户系统必须响应 success 或 ok 才会认定回调成功")
 
 		return fmt.Errorf("商户系统必须响应 success 或 ok 才会认定回调成功，实际响应：%s", string(all))
@@ -151,6 +154,19 @@ func epusdt(ctx context.Context, order model.Order) error {
 		markNotifyFail(order, fmt.Sprintf("商户系统返回状态码错误：%d（必须是200）", resp.StatusCode))
 
 		return fmt.Errorf("商户系统返回状态码错误：%d（必须是200）", resp.StatusCode)
+	}
+
+	all, err := io.ReadAll(resp.Body)
+	if err != nil {
+		markNotifyFail(order, fmt.Sprintf("io.ReadAll(resp.Body) Error: %v", err))
+
+		return err
+	}
+
+	if !isNotifyResponseAccepted(all) {
+		markNotifyFail(order, "商户系统必须响应 success 或 ok 才会认定回调成功")
+
+		return fmt.Errorf("商户系统必须响应 success 或 ok 才会认定回调成功，实际响应：%s", string(all))
 	}
 
 	if err = order.SetNotifyState(model.OrderNotifyStateSucc); err != nil {
