@@ -41,3 +41,10 @@ This repository uses the following release workflow on branch `elon`.
 
 - `upstream` has higher priority than local historical patches when syncing `main`.
 - Do not publish a release binary without both rules above.
+
+## Merge Guardrails (`elon`)
+
+When merging `upstream/main` into `elon`, verify these custom patches remain intact and are not overwritten:
+
+1. Startup welcome messages are disabled for notifier channels (no startup intro push).
+2. `fix(notify): require exact success/ok callback body for epay and epusdt` remains effective.
